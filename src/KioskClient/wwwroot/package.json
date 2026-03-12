@@ -1,0 +1,23 @@
+{
+  "name": "wwwroot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "build": "esbuild js/acs-sdk-entry.js --bundle --minify --outfile=js/acs-sdk-bundle.js --format=iife --platform=browser --target=es2020"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@azure/communication-calling": "^1.42.1",
+    "@azure/communication-common": "^2.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3"
+  }
+}

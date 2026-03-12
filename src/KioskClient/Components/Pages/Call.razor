@@ -1,0 +1,790 @@
+@page "/call"
+@rendermode InteractiveServer
+@using System.Net.WebSockets
+@using System.Text
+@using System.Text.Json
+@using KioskClient.Models
+@using KioskClient.Services
+@inject BackendApiClient BackendApi
+@inject MediaProcessorClient MediaProcessor
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<Call> Logger
+@implements IAsyncDisposable
+
+<PageTitle>Live Translation Call</PageTitle>
+
+<div class="call-page">
+    @if (!_inCall)
+    {
+        <!-- Setup Panel -->
+        <div class="setup-panel">
+            <h2>Join a Call</h2>
+
+            <div class="form-group">
+                <label for="displayName">Display Name</label>
+                <input id="displayName" type="text" @bind="_displayName" placeholder="Enter your name" />
+            </div>
+
+            <div class="form-group">
+                <label for="groupId">Group Call ID</label>
+                <input id="groupId" type="text" @bind="_groupId" placeholder="Enter group ID (GUID)" />
+            </div>
+
+            <div class="form-group">
+                <label for="sourceLanguage">Your Language</label>
+                <select id="sourceLanguage" @bind="_selectedSourceLanguage">
+                    @foreach (var lang in _sourceLanguages)
+                    {
+                        <option value="@lang.Code">@lang.Name</option>
+                    }
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="error-message">@_errorMessage</div>
+            }
+
+            <button class="btn-action btn-join-call" @onclick="JoinCallAsync" disabled="@_isJoining">
+                @if (_isJoining)
+                {
+                    <span>Connecting...</span>
+                }
+                else
+                {
+                    <span>Join Call</span>
+                }
+            </button>
+
+            <a href="/" class="btn-back">← Back to Home</a>
+        </div>
+    }
+    else
+    {
+        <!-- Call View -->
+        <div class="call-view">
+            <div class="call-main">
+                <!-- Participant Panel (1/4 width) -->
+                <div class="participant-panel">
+                    <h3 class="panel-title">Participants</h3>
+                    <div class="participant-list">
+                        <div class="participant-item self">
+                            <span class="participant-dot"></span>
+                            <span class="participant-name">You (@_displayName)</span>
+                        </div>
+                        @foreach (var p in _remoteParticipants.Values)
+                        {
+                            <div class="participant-item">
+                                <span class="participant-dot"></span>
+                                <span class="participant-name">@p</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Video Area (3/4 width) -->
+                <div class="video-area">
+                    <div id="remote-videos" class="remote-videos-container"></div>
+                    <div id="remote-placeholder" class="video-placeholder">
+                        <span>Other participants' video will appear here when they join</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Caption Area -->
+            <div id="caption-container" class="caption-area">
+                @foreach (var caption in _captions)
+                {
+                    <div class="caption-line @(caption.IsSystem ? "system" : caption.IsFinal ? "final" : "interim")">
+                        <span class="caption-text">@caption.Text</span>
+                    </div>
+                }
+                @if (!_captions.Any())
+                {
+                    <div class="caption-placeholder">Captions will appear here...</div>
+                }
+            </div>
+
+            <!-- Call Controls -->
+            <div class="call-controls">
+                <button class="btn-control @(_isMuted ? "active" : "")" @onclick="ToggleMuteAsync" title="@(_isMuted ? "Unmute" : "Mute")">
+                    @(_isMuted ? "🔇" : "🎤")
+                </button>
+                <button class="btn-control @(!_isVideoOn ? "active" : "")" @onclick="ToggleVideoAsync" title="@(_isVideoOn ? "Turn off camera" : "Turn on camera")">
+                    @(_isVideoOn ? "📹" : "📷")
+                </button>
+                <button class="btn-control btn-hangup" @onclick="HangUpAsync" title="Hang up">
+                    📞
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _displayName = string.Empty;
+    private string _groupId = "744c71d1-4361-4347-98fc-23fab093fe54";
+    private string _selectedSourceLanguage = "fr-FR";
+    private string _errorMessage = string.Empty;
+    private string _participantId = Guid.NewGuid().ToString();
+    private bool _isJoining;
+    private bool _inCall;
+    private bool _isMuted;
+    private bool _isVideoOn = true;
+
+    private ClientWebSocket? _webSocket;
+    private CancellationTokenSource? _wsCts;
+    private DotNetObjectReference<Call>? _dotNetRef;
+
+    private readonly List<CaptionMessage> _captions = new();
+    private readonly Dictionary<string, string> _remoteParticipants = new();
+
+    private readonly record struct LanguageOption(string Code, string Name);
+
+    private static readonly LanguageOption[] _sourceLanguages =
+    [
+        new("fr-FR", "French"),
+        new("en-US", "English"),
+        new("es-ES", "Spanish"),
+        new("zh-CN", "Chinese (Mandarin)"),
+        new("de-DE", "German"),
+        new("ja-JP", "Japanese"),
+        new("ko-KR", "Korean"),
+        new("pt-BR", "Portuguese"),
+        new("ar-SA", "Arabic"),
+    ];
+
+    /// <summary>
+    /// Maps source language codes to the PubSub caption group code.
+    /// Most are just the part before '-', but zh-CN maps to zh-Hans.
+    /// </summary>
+    private static readonly Dictionary<string, string> _captionGroupMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["zh-CN"] = "zh-Hans"
+    };
+
+    private string DisplayLanguage =>
+        _captionGroupMap.TryGetValue(_selectedSourceLanguage, out var mapped)
+            ? mapped
+            : _selectedSourceLanguage.Split('-')[0];
+
+    private static readonly Dictionary<string, (string Joined, string Left)> _systemMessages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["en-US"] = ("{0} joined the call", "{0} left the call"),
+        ["fr-FR"] = ("{0} a rejoint l'appel", "{0} a quitté l'appel"),
+        ["es-ES"] = ("{0} se unió a la llamada", "{0} abandonó la llamada"),
+        ["zh-CN"] = ("{0} 加入了通话", "{0} 离开了通话"),
+        ["de-DE"] = ("{0} ist dem Anruf beigetreten", "{0} hat den Anruf verlassen"),
+        ["ja-JP"] = ("{0} が通話に参加しました", "{0} が通話から退出しました"),
+        ["ko-KR"] = ("{0} 님이 통화에 참여했습니다", "{0} 님이 통화에서 나갔습니다"),
+        ["pt-BR"] = ("{0} entrou na chamada", "{0} saiu da chamada"),
+        ["ar-SA"] = ("انضم {0} إلى المكالمة", "غادر {0} المكالمة"),
+    };
+
+    private string GetSystemMessage(string nameValue, bool joined)
+    {
+        if (!_systemMessages.TryGetValue(_selectedSourceLanguage, out var msgs))
+            msgs = _systemMessages["en-US"];
+        return string.Format(joined ? msgs.Joined : msgs.Left, nameValue);
+    }
+
+    [JSInvokable]
+    public async Task OnRemoteParticipantAdded(string id, string displayName)
+    {
+        var name = string.IsNullOrEmpty(displayName) ? "Participant" : displayName;
+        _remoteParticipants[id] = name;
+        _captions.Add(new CaptionMessage { Text = GetSystemMessage(name, joined: true), IsFinal = true, IsSystem = true, Timestamp = DateTimeOffset.UtcNow });
+        StateHasChanged();
+        await JS.InvokeVoidAsync("scrollCaptionsToBottom");
+    }
+
+    [JSInvokable]
+    public async Task OnRemoteParticipantRemoved(string id)
+    {
+        var name = _remoteParticipants.TryGetValue(id, out var n) ? n : "Participant";
+        _remoteParticipants.Remove(id);
+        _captions.Add(new CaptionMessage { Text = GetSystemMessage(name, joined: false), IsFinal = true, IsSystem = true, Timestamp = DateTimeOffset.UtcNow });
+        StateHasChanged();
+        await JS.InvokeVoidAsync("scrollCaptionsToBottom");
+    }
+
+    private async Task JoinCallAsync()
+    {
+        _errorMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_displayName))
+        {
+            _errorMessage = "Please enter a display name.";
+            return;
+        }
+
+        if (!Guid.TryParse(_groupId, out _))
+        {
+            _errorMessage = "Please enter a valid Group Call ID (GUID).";
+            return;
+        }
+
+        _isJoining = true;
+        StateHasChanged();
+
+        try
+        {
+            // 1. Get ACS token
+            var tokenInfo = await BackendApi.GetTokenAsync();
+
+            // 2. Negotiate PubSub WebSocket URL for captions
+            var pubSubUrl = await BackendApi.NegotiatePubSubAsync(DisplayLanguage);
+            Logger.LogInformation("PubSub negotiate returned URL for language '{Language}' (url length={Length})",
+                DisplayLanguage, pubSubUrl?.Length ?? 0);
+
+            // 3. Initialize ACS SDK
+            var initialized = await JS.InvokeAsync<bool>("acsCall.initialize", tokenInfo.Token, _displayName);
+            if (!initialized)
+            {
+                _errorMessage = "Failed to initialize ACS SDK. Check browser console for details.";
+                _isJoining = false;
+                return;
+            }
+
+            // 4. Join the call
+            _dotNetRef = DotNetObjectReference.Create(this);
+            var callId = await JS.InvokeAsync<string?>("acsCall.joinCall", _groupId, _dotNetRef);
+            if (callId == null)
+            {
+                _errorMessage = "Failed to join the call.";
+                _isJoining = false;
+                return;
+            }
+
+            // 5. Tell MediaProcessor to join the group call for translation
+            await MediaProcessor.JoinGroupCallAsync(_groupId, _selectedSourceLanguage, _participantId, tokenInfo.UserId);
+
+            _inCall = true;
+            _isJoining = false;
+
+            // 6. Start WebSocket for captions
+            if (!string.IsNullOrEmpty(pubSubUrl))
+            {
+                _ = Task.Run(() => StartCaptionWebSocketAsync(pubSubUrl));
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error joining call: {ex.Message}";
+            _isJoining = false;
+        }
+    }
+
+    private async Task StartCaptionWebSocketAsync(string url)
+    {
+        _wsCts = new CancellationTokenSource();
+        _webSocket = new ClientWebSocket();
+
+        try
+        {
+            Logger.LogInformation("Connecting WebSocket to PubSub...");
+            await _webSocket.ConnectAsync(new Uri(url), _wsCts.Token);
+            Logger.LogInformation("WebSocket connected successfully (state={State})", _webSocket.State);
+
+            var buffer = new byte[4096];
+            while (_webSocket.State == WebSocketState.Open && !_wsCts.Token.IsCancellationRequested)
+            {
+                // Accumulate fragments until we have the complete message
+                using var ms = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await _webSocket.ReceiveAsync(buffer, _wsCts.Token);
+                    ms.Write(buffer, 0, result.Count);
+                } while (!result.EndOfMessage);
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    var json = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+                    Logger.LogDebug("WebSocket message received ({Bytes} bytes): {Preview}",
+                        ms.Length, json.Length > 200 ? json[..200] + "..." : json);
+
+                    // Discriminate message type
+                    using var doc = JsonDocument.Parse(json);
+                    var msgType = doc.RootElement.TryGetProperty("type", out var typeProp)
+                        ? typeProp.GetString() : null;
+
+                    if (msgType == "audio" &&
+                        doc.RootElement.TryGetProperty("audioBase64", out var audioProp))
+                    {
+                        // Skip audio from our own speech
+                        var audioParticipant = doc.RootElement.TryGetProperty("participantId", out var apProp)
+                            ? apProp.GetString() : null;
+                        if (audioParticipant == _participantId)
+                            continue;
+
+                        // Play TTS audio in the browser
+                        var audioBase64 = audioProp.GetString();
+                        if (!string.IsNullOrEmpty(audioBase64))
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                await JS.InvokeVoidAsync("acsCall.playAudio", audioBase64);
+                            });
+                        }
+                    }
+                    else if (msgType == "caption" &&
+                             doc.RootElement.TryGetProperty("data", out var dataProp))
+                    {
+                        var caption = JsonSerializer.Deserialize<CaptionMessage>(
+                            dataProp.GetRawText(),
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                        if (caption != null)
+                        {
+                            // Skip captions from our own speech
+                            if (caption.ParticipantId == _participantId)
+                                continue;
+
+                            await InvokeAsync(async () =>
+                            {
+                                if (caption.IsFinal)
+                                {
+                                    _captions.Add(caption);
+                                }
+                                else
+                                {
+                                    _captions.RemoveAll(c => !c.IsFinal);
+                                    _captions.Add(caption);
+                                }
+
+                                StateHasChanged();
+                                await JS.InvokeVoidAsync("scrollCaptionsToBottom");
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Legacy: try to deserialize directly as CaptionMessage
+                        var caption = JsonSerializer.Deserialize<CaptionMessage>(json,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                        if (caption != null)
+                        {
+                            // Skip captions from our own speech
+                            if (caption.ParticipantId == _participantId)
+                                continue;
+
+                            await InvokeAsync(async () =>
+                            {
+                                if (caption.IsFinal)
+                                {
+                                    _captions.Add(caption);
+                                }
+                                else
+                                {
+                                    _captions.RemoveAll(c => !c.IsFinal);
+                                    _captions.Add(caption);
+                                }
+
+                                StateHasChanged();
+                                await JS.InvokeVoidAsync("scrollCaptionsToBottom");
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "WebSocket error — captions will not be received");
+        }
+    }
+
+    private async Task ToggleMuteAsync()
+    {
+        _isMuted = await JS.InvokeAsync<bool>("acsCall.toggleMute");
+    }
+
+    private async Task ToggleVideoAsync()
+    {
+        _isVideoOn = await JS.InvokeAsync<bool>("acsCall.toggleVideo");
+    }
+
+    private async Task HangUpAsync()
+    {
+        // Close WebSocket
+        if (_wsCts != null)
+        {
+            await _wsCts.CancelAsync();
+        }
+
+        if (_webSocket != null && _webSocket.State == WebSocketState.Open)
+        {
+            try
+            {
+                await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Hanging up", CancellationToken.None);
+            }
+            catch { /* best effort */ }
+        }
+
+        // Hang up ACS call
+        await JS.InvokeVoidAsync("acsCall.hangUp");
+
+        _inCall = false;
+        _captions.Clear();
+        _remoteParticipants.Clear();
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
+
+        Navigation.NavigateTo("/");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_wsCts != null)
+        {
+            await _wsCts.CancelAsync();
+            _wsCts.Dispose();
+        }
+
+        if (_webSocket != null)
+        {
+            if (_webSocket.State == WebSocketState.Open)
+            {
+                try
+                {
+                    await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disposing", CancellationToken.None);
+                }
+                catch { /* best effort */ }
+            }
+            _webSocket.Dispose();
+        }
+
+        _dotNetRef?.Dispose();
+    }
+}
+
+<style>
+    .call-page {
+        min-height: 100vh;
+        background: #1a1a2e;
+        color: #e0e0e0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Setup Panel */
+    .setup-panel {
+        max-width: 440px;
+        margin: 0 auto;
+        padding: 3rem 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+        justify-content: center;
+    }
+
+    .setup-panel h2 {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 2rem;
+        color: #fff;
+    }
+
+    .form-group {
+        width: 100%;
+        margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.4rem;
+        font-size: 0.9rem;
+        color: #a0a0b8;
+        font-weight: 500;
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 0.7rem 1rem;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 1rem;
+        outline: none;
+        transition: border-color 0.2s;
+        box-sizing: border-box;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        border-color: #667eea;
+    }
+
+    .form-group select option {
+        background: #1a1a2e;
+        color: #fff;
+    }
+
+    .error-message {
+        background: rgba(255, 80, 80, 0.15);
+        border: 1px solid rgba(255, 80, 80, 0.3);
+        color: #ff6b6b;
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        width: 100%;
+        font-size: 0.9rem;
+        box-sizing: border-box;
+    }
+
+    .btn-action {
+        padding: 0.8rem 2rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.05rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s, box-shadow 0.15s;
+        width: 100%;
+    }
+
+    .btn-join-call {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+    }
+
+    .btn-join-call:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-join-call:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .btn-back {
+        display: inline-block;
+        margin-top: 1rem;
+        color: #8888aa;
+        text-decoration: none;
+        font-size: 0.9rem;
+    }
+
+    .btn-back:hover {
+        color: #fff;
+    }
+
+    /* Call View */
+    .call-view {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+
+    .call-main {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    /* Participant Panel */
+    .participant-panel {
+        width: 25%;
+        min-width: 180px;
+        max-width: 280px;
+        background: #16162a;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .panel-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #8888aa;
+        padding: 0.75rem 1rem 0.5rem;
+        margin: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .participant-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.5rem 0;
+    }
+
+    .participant-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .participant-item.self {
+        color: #667eea;
+        font-weight: 500;
+    }
+
+    .participant-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #48bb78;
+        flex-shrink: 0;
+    }
+
+    .participant-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Video Area */
+    .video-area {
+        flex: 1;
+        position: relative;
+        background: #0d0d1a;
+        display: flex;
+        min-height: 0;
+    }
+
+    .remote-videos-container {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 4px;
+    }
+
+    :global(.remote-video) {
+        flex: 1;
+        min-width: 200px;
+        background: #0d0d1a;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    :global(.remote-video video) {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .video-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #555;
+        font-size: 1rem;
+        font-style: italic;
+        pointer-events: none;
+    }
+
+    /* Caption Area */
+    .caption-area {
+        background: rgba(0, 0, 0, 0.75);
+        padding: 0.75rem 1.5rem;
+        max-height: 180px;
+        overflow-y: auto;
+        scroll-behavior: smooth;
+    }
+
+    .caption-line {
+        padding: 0.2rem 0;
+        animation: fadeIn 0.2s ease-in;
+    }
+
+    .caption-line.interim {
+        opacity: 0.65;
+    }
+
+    .caption-line.final {
+        opacity: 1;
+    }
+
+    .caption-line.system {
+        opacity: 0.7;
+        font-style: italic;
+        text-align: left;
+        padding: 0.3rem 0;
+    }
+
+    .caption-line.system .caption-text {
+        font-size: 0.9rem;
+        color: #8888aa;
+    }
+
+    .caption-text {
+        font-size: 1.1rem;
+        line-height: 1.5;
+        color: #fff;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .caption-placeholder {
+        color: #666;
+        font-style: italic;
+        font-size: 0.95rem;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Call Controls */
+    .call-controls {
+        display: flex;
+        justify-content: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: #16162a;
+    }
+
+    .btn-control {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        font-size: 1.4rem;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn-control:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-control.active {
+        background: rgba(255, 80, 80, 0.3);
+    }
+
+    .btn-hangup {
+        background: #e53e3e;
+        transform: rotate(135deg);
+    }
+
+    .btn-hangup:hover {
+        background: #c53030;
+    }
+</style>

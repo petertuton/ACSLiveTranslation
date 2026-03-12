@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-MediaProcessor-b992ce6b-784b-42c6-a5a3-d33b32fa7898</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Communication.CallAutomation" Version="*" />
+    <PackageReference Include="Azure.Identity" Version="*" />
+    <PackageReference Include="Azure.Messaging.WebPubSub" Version="*" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="*" />
+    <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.14" />
+  </ItemGroup>
+</Project>

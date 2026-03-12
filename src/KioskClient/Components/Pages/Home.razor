@@ -1,0 +1,75 @@
+﻿@page "/"
+
+<PageTitle>ACS Live Translation</PageTitle>
+
+<div class="home-container">
+    <div class="home-card">
+        <div class="home-icon">🌐</div>
+        <h1>ACS Live Translation</h1>
+        <p class="home-description">
+            Real-time translated captions for video calls powered by Azure Communication Services.
+            Join a call and see live captions in your preferred language.
+        </p>
+        <a href="/call" class="btn-join">
+            Join Call
+        </a>
+    </div>
+</div>
+
+<style>
+    .home-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+        color: #fff;
+        padding: 2rem;
+    }
+
+    .home-card {
+        text-align: center;
+        max-width: 520px;
+        padding: 3rem;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(12px);
+    }
+
+    .home-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+    }
+
+    .home-card h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+    }
+
+    .home-description {
+        font-size: 1.05rem;
+        color: #b0b0c8;
+        line-height: 1.6;
+        margin-bottom: 2rem;
+    }
+
+    .btn-join {
+        display: inline-block;
+        padding: 0.85rem 2.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 8px;
+        text-decoration: none;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .btn-join:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        color: #fff;
+    }
+</style>

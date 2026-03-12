@@ -1,0 +1,59 @@
+# Azurite
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+bld/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.csproj.user
+
+# NuGet
+**/[Pp]ackages/*
+*.nupkg
+**/packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# App settings (contain connection strings and keys)
+appsettings.json
+appsettings.Development.json
+appsettings.*.json
+!appsettings.template.json
+
+# Azure Functions
+local.settings.json
+!local.settings.template.json
+
+# .NET
+*.dll
+*.exe
+*.pdb
+
+# Node.js
+node_modules/
+package-lock.json
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

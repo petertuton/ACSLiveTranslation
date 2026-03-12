@@ -1,0 +1,11 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "npm init": true,
+        "npm install": true,
+        "Test-Path": true,
+        "npx esbuild": true,
+        "Out-Null": true,
+        "ForEach-Object": true,
+        "Get-Member": true
+    }
+}

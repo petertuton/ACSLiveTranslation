@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "AcsEndpoint": "https://<your-acs-resource>.unitedstates.communication.azure.com/",
+    "WebPubSubEndpoint": "https://<your-webpubsub-resource>.webpubsub.azure.com",
+    "WebPubSubHubName": "captions"
+  },
+  "Host": {
+    "CORS": "http://localhost:5177,https://localhost:5177",
+    "CORSCredentials": true
+  }
+}
