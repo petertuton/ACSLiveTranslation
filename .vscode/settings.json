@@ -7,5 +7,11 @@
         "Out-Null": true,
         "ForEach-Object": true,
         "Get-Member": true
-    }
+    },
+    "azureFunctions.projectSubpath": "src\\BackendApi",
+    "azureFunctions.deploySubpath": "src\\BackendApi/bin/Release/net8.0/publish",
+    "azureFunctions.projectLanguage": "C#",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.preDeployTask": "publish (functions)"
 }

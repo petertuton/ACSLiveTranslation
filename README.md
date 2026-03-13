@@ -40,19 +40,79 @@ Locally, `DefaultAzureCredential` uses your Azure CLI login. In Azure, it uses t
 
 ## Azure Resource Setup
 
+> All CLI commands below are shown in both **Bash** and **PowerShell**. Set the configuration variables at the start of your terminal session — they are referenced throughout this guide and in the [Deployment](#deployment-to-azure) section.
+
+### Configuration Variables
+
+**Bash:**
+```bash
+RG="rg-live-translation"
+LOCATION="eastus"
+ACS_NAME="acs-live-translation"
+ACS_DATA_LOCATION="unitedstates"
+SPEECH_NAME="speech-live-translation"
+PUBSUB_NAME="pubsub-live-translation"
+PUBSUB_HUB="captions"
+LAW_NAME="law-live-translation"
+CAE_NAME="cae-live-translation"
+AI_NAME="ai-live-translation"
+ACR_NAME="acrlivetranslation"
+FUNC_NAME="func-live-translation"
+STORAGE_NAME="stlivetranslation"
+CA_NAME="media-processor"
+APP_NAME="app-kiosk-live-translation"
+ASP_NAME="asp-live-translation"
+```
+
+**PowerShell:**
+```powershell
+$RG = "rg-live-translation"
+$LOCATION = "eastus"
+$ACS_NAME = "acs-live-translation"
+$ACS_DATA_LOCATION = "unitedstates"
+$SPEECH_NAME = "speech-live-translation"
+$PUBSUB_NAME = "pubsub-live-translation"
+$PUBSUB_HUB = "captions"
+$LAW_NAME = "law-live-translation"
+$CAE_NAME = "cae-live-translation"
+$AI_NAME = "ai-live-translation"
+$ACR_NAME = "acrlivetranslation"
+$FUNC_NAME = "func-live-translation"
+$STORAGE_NAME = "stlivetranslation"
+$CA_NAME = "media-processor"
+$APP_NAME = "app-kiosk-live-translation"
+$ASP_NAME = "asp-live-translation"
+```
+
 ### 1. Create a Resource Group
 
+**Bash:**
 ```bash
-az group create --name rg-live-translation --location eastus
+az group create --name $RG --location $LOCATION
+```
+
+**PowerShell:**
+```powershell
+az group create --name $RG --location $LOCATION
 ```
 
 ### 2. Azure Communication Services
 
+**Bash:**
 ```bash
 az communication create \
-  --name acs-live-translation \
-  --resource-group rg-live-translation \
-  --data-location unitedstates \
+  --name $ACS_NAME \
+  --resource-group $RG \
+  --data-location $ACS_DATA_LOCATION \
+  --location global
+```
+
+**PowerShell:**
+```powershell
+az communication create `
+  --name $ACS_NAME `
+  --resource-group $RG `
+  --data-location $ACS_DATA_LOCATION `
   --location global
 ```
 
@@ -60,13 +120,25 @@ Note the endpoint (e.g. `https://acs-live-translation.unitedstates.communication
 
 ### 3. Azure AI Speech Service
 
+**Bash:**
 ```bash
 az cognitiveservices account create \
-  --name speech-live-translation \
-  --resource-group rg-live-translation \
+  --name $SPEECH_NAME \
+  --resource-group $RG \
   --kind SpeechServices \
   --sku S0 \
-  --location eastus \
+  --location $LOCATION \
+  --yes
+```
+
+**PowerShell:**
+```powershell
+az cognitiveservices account create `
+  --name $SPEECH_NAME `
+  --resource-group $RG `
+  --kind SpeechServices `
+  --sku S0 `
+  --location $LOCATION `
   --yes
 ```
 
@@ -74,18 +146,33 @@ Note the endpoint and full resource ID for configuration.
 
 ### 4. Azure Web PubSub
 
+**Bash:**
 ```bash
 az webpubsub create \
-  --name pubsub-live-translation \
-  --resource-group rg-live-translation \
+  --name $PUBSUB_NAME \
+  --resource-group $RG \
   --sku Free_F1 \
-  --location eastus
+  --location $LOCATION
 
-# Create the "captions" hub
 az webpubsub hub create \
-  --name pubsub-live-translation \
-  --resource-group rg-live-translation \
-  --hub-name captions \
+  --name $PUBSUB_NAME \
+  --resource-group $RG \
+  --hub-name $PUBSUB_HUB \
+  --allow-anonymous false
+```
+
+**PowerShell:**
+```powershell
+az webpubsub create `
+  --name $PUBSUB_NAME `
+  --resource-group $RG `
+  --sku Free_F1 `
+  --location $LOCATION
+
+az webpubsub hub create `
+  --name $PUBSUB_NAME `
+  --resource-group $RG `
+  --hub-name $PUBSUB_HUB `
   --allow-anonymous false
 ```
 
@@ -95,56 +182,107 @@ Note the endpoint (e.g. `https://pubsub-live-translation.webpubsub.azure.com`).
 
 All services authenticate via `DefaultAzureCredential`. You must assign the correct roles to every identity that will access these resources (your user account for local dev, managed identities for Azure).
 
+**Bash:**
 ```bash
-# Get your signed-in user object ID (for local development)
 USER_ID=$(az ad signed-in-user show --query id -o tsv)
-RG="rg-live-translation"
 
 # ACS — create users, issue tokens, Call Automation
 az role assignment create \
   --assignee $USER_ID \
   --role "Communication and Email Service Owner" \
-  --scope $(az communication show -n acs-live-translation -g $RG --query id -o tsv)
+  --scope $(az communication show -n $ACS_NAME -g $RG --query id -o tsv)
 
 # Web PubSub — generate client access URIs, send messages to groups
 az role assignment create \
   --assignee $USER_ID \
   --role "Web PubSub Service Owner" \
-  --scope $(az webpubsub show -n pubsub-live-translation -g $RG --query id -o tsv)
+  --scope $(az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv)
 
 # Speech — use STT, translation, and TTS
 az role assignment create \
   --assignee $USER_ID \
   --role "Cognitive Services Speech User" \
-  --scope $(az cognitiveservices account show -n speech-live-translation -g $RG --query id -o tsv)
+  --scope $(az cognitiveservices account show -n $SPEECH_NAME -g $RG --query id -o tsv)
+```
+
+**PowerShell:**
+```powershell
+$USER_ID = az ad signed-in-user show --query id -o tsv
+
+# ACS — create users, issue tokens, Call Automation
+$ACS_SCOPE = az communication show -n $ACS_NAME -g $RG --query id -o tsv
+az role assignment create `
+  --assignee $USER_ID `
+  --role "Communication and Email Service Owner" `
+  --scope $ACS_SCOPE
+
+# Web PubSub — generate client access URIs, send messages to groups
+$PUBSUB_SCOPE = az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv
+az role assignment create `
+  --assignee $USER_ID `
+  --role "Web PubSub Service Owner" `
+  --scope $PUBSUB_SCOPE
+
+# Speech — use STT, translation, and TTS
+$SPEECH_SCOPE = az cognitiveservices account show -n $SPEECH_NAME -g $RG --query id -o tsv
+az role assignment create `
+  --assignee $USER_ID `
+  --role "Cognitive Services Speech User" `
+  --scope $SPEECH_SCOPE
 ```
 
 > **Note:** Role assignments can take 1-2 minutes to propagate.
 
 ### 6. Optional: Azure Monitor & Application Insights
 
+**Bash:**
 ```bash
 az monitor app-insights component create \
-  --app ai-live-translation \
-  --resource-group rg-live-translation \
-  --location eastus \
+  --app $AI_NAME \
+  --resource-group $RG \
+  --location $LOCATION \
+  --application-type web
+```
+
+**PowerShell:**
+```powershell
+az monitor app-insights component create `
+  --app $AI_NAME `
+  --resource-group $RG `
+  --location $LOCATION `
   --application-type web
 ```
 
 ### 7. Azure Container Apps Environment (for Media Processor)
 
+**Bash:**
 ```bash
 az monitor log-analytics workspace create \
-  --resource-group rg-live-translation \
-  --workspace-name law-live-translation \
-  --location eastus
+  --resource-group $RG \
+  --workspace-name $LAW_NAME \
+  --location $LOCATION
 
 az containerapp env create \
-  --name cae-live-translation \
-  --resource-group rg-live-translation \
-  --location eastus \
+  --name $CAE_NAME \
+  --resource-group $RG \
+  --location $LOCATION \
   --logs-destination log-analytics \
-  --logs-workspace-name law-live-translation
+  --logs-workspace-name $LAW_NAME
+```
+
+**PowerShell:**
+```powershell
+az monitor log-analytics workspace create `
+  --resource-group $RG `
+  --workspace-name $LAW_NAME `
+  --location $LOCATION
+
+az containerapp env create `
+  --name $CAE_NAME `
+  --resource-group $RG `
+  --location $LOCATION `
+  --logs-destination log-analytics `
+  --logs-workspace-name $LAW_NAME
 ```
 
 ---
@@ -153,10 +291,18 @@ az containerapp env create \
 
 Copy the template files and fill in your resource endpoints:
 
+**Bash:**
 ```bash
 cp src/BackendApi/local.settings.template.json  src/BackendApi/local.settings.json
 cp src/MediaProcessor/appsettings.template.json  src/MediaProcessor/appsettings.json
 cp src/KioskClient/appsettings.template.json     src/KioskClient/appsettings.json
+```
+
+**PowerShell:**
+```powershell
+Copy-Item src/BackendApi/local.settings.template.json  src/BackendApi/local.settings.json
+Copy-Item src/MediaProcessor/appsettings.template.json  src/MediaProcessor/appsettings.json
+Copy-Item src/KioskClient/appsettings.template.json     src/KioskClient/appsettings.json
 ```
 
 ### Backend API (`src/BackendApi/local.settings.json`)
@@ -273,11 +419,11 @@ dotnet run
 
 ### 4. Verify All Services
 
-| Service | How to check |
-|---|---|
-| Backend API | `curl http://localhost:7071/api/token` — returns JSON with token |
-| Media Processor | `curl http://localhost:5001/health` — returns healthy status |
-| Kiosk Client | Open the URL from terminal output in your browser |
+| Service | Bash | PowerShell |
+|---|---|---|
+| Backend API | `curl http://localhost:7071/api/token` | `Invoke-RestMethod http://localhost:7071/api/token` |
+| Media Processor | `curl http://localhost:5001/health` | `Invoke-RestMethod http://localhost:5001/health` |
+| Kiosk Client | Open the URL from terminal output in your browser | Same |
 
 ---
 
@@ -288,6 +434,13 @@ You can test with **two browser tabs/windows** on the same machine — no second
 1. **Start all three services** as described above.
 
 2. **Generate a Group Call ID** (any GUID works as a shared "room name"):
+
+   **Bash:**
+   ```bash
+   uuidgen
+   ```
+
+   **PowerShell:**
    ```powershell
    [guid]::NewGuid()
    ```
@@ -338,128 +491,286 @@ All deployments use **system-assigned managed identities** — no secrets to man
 
 ### Deploy Backend API (Function App)
 
+**Bash:**
 ```bash
 az functionapp create \
-  --name func-live-translation \
-  --resource-group rg-live-translation \
-  --storage-account stlivetranslation \
-  --consumption-plan-location eastus \
+  --name $FUNC_NAME \
+  --resource-group $RG \
+  --storage-account $STORAGE_NAME \
+  --consumption-plan-location $LOCATION \
   --runtime dotnet-isolated \
   --runtime-version 8 \
   --functions-version 4
 
 # Enable system-assigned managed identity
 az functionapp identity assign \
-  --name func-live-translation \
-  --resource-group rg-live-translation
+  --name $FUNC_NAME \
+  --resource-group $RG
 
 # Get the identity's principal ID
 FUNC_IDENTITY=$(az functionapp identity show \
-  --name func-live-translation \
-  --resource-group rg-live-translation \
+  --name $FUNC_NAME \
+  --resource-group $RG \
   --query principalId -o tsv)
 
 # Assign RBAC roles
 az role assignment create --assignee $FUNC_IDENTITY \
   --role "Communication and Email Service Owner" \
-  --scope $(az communication show -n acs-live-translation -g rg-live-translation --query id -o tsv)
+  --scope $(az communication show -n $ACS_NAME -g $RG --query id -o tsv)
 
 az role assignment create --assignee $FUNC_IDENTITY \
   --role "Web PubSub Service Owner" \
-  --scope $(az webpubsub show -n pubsub-live-translation -g rg-live-translation --query id -o tsv)
+  --scope $(az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv)
 
 # Configure app settings (endpoints only — no secrets)
 az functionapp config appsettings set \
-  --name func-live-translation \
-  --resource-group rg-live-translation \
+  --name $FUNC_NAME \
+  --resource-group $RG \
   --settings \
-    "AcsEndpoint=https://acs-live-translation.unitedstates.communication.azure.com/" \
-    "WebPubSubEndpoint=https://pubsub-live-translation.webpubsub.azure.com" \
-    "WebPubSubHubName=captions"
+    "AcsEndpoint=https://$ACS_NAME.$ACS_DATA_LOCATION.communication.azure.com/" \
+    "WebPubSubEndpoint=https://$PUBSUB_NAME.webpubsub.azure.com" \
+    "WebPubSubHubName=$PUBSUB_HUB"
 
 # Publish
 cd src/BackendApi
-func azure functionapp publish func-live-translation
+func azure functionapp publish $FUNC_NAME
+```
+
+**PowerShell:**
+```powershell
+az functionapp create `
+  --name $FUNC_NAME `
+  --resource-group $RG `
+  --storage-account $STORAGE_NAME `
+  --consumption-plan-location $LOCATION `
+  --runtime dotnet-isolated `
+  --runtime-version 8 `
+  --functions-version 4
+
+# Enable system-assigned managed identity
+az functionapp identity assign `
+  --name $FUNC_NAME `
+  --resource-group $RG
+
+# Get the identity's principal ID
+$FUNC_IDENTITY = az functionapp identity show `
+  --name $FUNC_NAME `
+  --resource-group $RG `
+  --query principalId -o tsv
+
+# Assign RBAC roles
+$ACS_SCOPE = az communication show -n $ACS_NAME -g $RG --query id -o tsv
+az role assignment create --assignee $FUNC_IDENTITY `
+  --role "Communication and Email Service Owner" `
+  --scope $ACS_SCOPE
+
+$PUBSUB_SCOPE = az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv
+az role assignment create --assignee $FUNC_IDENTITY `
+  --role "Web PubSub Service Owner" `
+  --scope $PUBSUB_SCOPE
+
+# Configure app settings (endpoints only — no secrets)
+az functionapp config appsettings set `
+  --name $FUNC_NAME `
+  --resource-group $RG `
+  --settings `
+    "AcsEndpoint=https://$ACS_NAME.$ACS_DATA_LOCATION.communication.azure.com/" `
+    "WebPubSubEndpoint=https://$PUBSUB_NAME.webpubsub.azure.com" `
+    "WebPubSubHubName=$PUBSUB_HUB"
+
+# Publish
+Push-Location src/BackendApi
+func azure functionapp publish $FUNC_NAME
+Pop-Location
 ```
 
 ### Deploy Media Processor (Container App)
 
+**Bash:**
 ```bash
-# Build and push container image
-az acr create --name acrlivetranslation --resource-group rg-live-translation --sku Basic
-az acr login --name acrlivetranslation
+# Create ACR (if it doesn't exist)
+az acr create --name $ACR_NAME --resource-group $RG --sku Basic --admin-enabled true
 
+# Build and push the container image
 cd src/MediaProcessor
-dotnet publish -c Release
-docker build -t acrlivetranslation.azurecr.io/media-processor:latest .
-docker push acrlivetranslation.azurecr.io/media-processor:latest
+docker build -t $ACR_NAME.azurecr.io/$CA_NAME:latest .
+
+# Login to ACR and push
+ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query "passwords[0].value" -o tsv)
+echo "$ACR_PASSWORD" | docker login $ACR_NAME.azurecr.io -u $ACR_NAME --password-stdin
+docker push $ACR_NAME.azurecr.io/$CA_NAME:latest
 
 # Deploy to Container Apps with system-assigned managed identity
 az containerapp create \
-  --name media-processor \
-  --resource-group rg-live-translation \
-  --environment cae-live-translation \
-  --image acrlivetranslation.azurecr.io/media-processor:latest \
-  --registry-server acrlivetranslation.azurecr.io \
+  --name $CA_NAME \
+  --resource-group $RG \
+  --environment $CAE_NAME \
+  --image $ACR_NAME.azurecr.io/$CA_NAME:latest \
+  --registry-server $ACR_NAME.azurecr.io \
+  --ingress external --target-port 8080 \
   --system-assigned \
   --env-vars \
-    "AcsEndpoint=https://acs-live-translation.unitedstates.communication.azure.com/" \
-    "CallbackBaseUrl=https://media-processor.<your-cae-domain>.azurecontainerapps.io/api/callbacks" \
-    "Speech__Endpoint=https://speech-live-translation.cognitiveservices.azure.com/" \
-    "Speech__ResourceId=/subscriptions/<sub-id>/resourceGroups/rg-live-translation/providers/Microsoft.CognitiveServices/accounts/speech-live-translation" \
-    "Speech__Region=eastus" \
+    "AcsEndpoint=https://$ACS_NAME.$ACS_DATA_LOCATION.communication.azure.com/" \
+    "CallbackBaseUrl=https://$CA_NAME.<your-cae-domain>.azurecontainerapps.io/api/callbacks" \
+    "Speech__Endpoint=https://$SPEECH_NAME.cognitiveservices.azure.com/" \
+    "Speech__ResourceId=/subscriptions/<sub-id>/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$SPEECH_NAME" \
+    "Speech__Region=$LOCATION" \
     "Speech__SourceLanguage=en-US" \
     "Speech__TargetLanguages__0=en" \
     "Speech__TargetLanguages__1=es" \
     "Speech__TargetLanguages__2=fr" \
     "Speech__TargetLanguages__3=de" \
-    "WebPubSub__Endpoint=https://pubsub-live-translation.webpubsub.azure.com" \
-    "WebPubSub__HubName=captions"
+    "WebPubSub__Endpoint=https://$PUBSUB_NAME.webpubsub.azure.com" \
+    "WebPubSub__HubName=$PUBSUB_HUB"
 
 # Get the managed identity principal ID
 CA_IDENTITY=$(az containerapp identity show \
-  --name media-processor \
-  --resource-group rg-live-translation \
+  --name $CA_NAME \
+  --resource-group $RG \
   --query principalId -o tsv)
 
 # Assign RBAC roles
 az role assignment create --assignee $CA_IDENTITY \
   --role "Communication and Email Service Owner" \
-  --scope $(az communication show -n acs-live-translation -g rg-live-translation --query id -o tsv)
+  --scope $(az communication show -n $ACS_NAME -g $RG --query id -o tsv)
 
 az role assignment create --assignee $CA_IDENTITY \
   --role "Web PubSub Service Owner" \
-  --scope $(az webpubsub show -n pubsub-live-translation -g rg-live-translation --query id -o tsv)
+  --scope $(az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv)
 
 az role assignment create --assignee $CA_IDENTITY \
   --role "Cognitive Services Speech User" \
-  --scope $(az cognitiveservices account show -n speech-live-translation -g rg-live-translation --query id -o tsv)
+  --scope $(az cognitiveservices account show -n $SPEECH_NAME -g $RG --query id -o tsv)
+```
+
+**PowerShell:**
+```powershell
+# Create ACR (if it doesn't exist)
+az acr create --name $ACR_NAME --resource-group $RG --sku Basic --admin-enabled true
+
+# Build and push the container image
+Push-Location src/MediaProcessor
+docker build -t "$ACR_NAME.azurecr.io/${CA_NAME}:latest" .
+
+# Login to ACR and push
+$ACR_PASSWORD = az acr credential show --name $ACR_NAME --query "passwords[0].value" -o tsv
+$ACR_PASSWORD | docker login "$ACR_NAME.azurecr.io" -u $ACR_NAME --password-stdin
+docker push "$ACR_NAME.azurecr.io/${CA_NAME}:latest"
+
+# Deploy to Container Apps with system-assigned managed identity
+az containerapp create `
+  --name $CA_NAME `
+  --resource-group $RG `
+  --environment $CAE_NAME `
+  --image "$ACR_NAME.azurecr.io/${CA_NAME}:latest" `
+  --registry-server "$ACR_NAME.azurecr.io" `
+  --ingress external --target-port 8080 `
+  --system-assigned `
+  --env-vars `
+    "AcsEndpoint=https://$ACS_NAME.$ACS_DATA_LOCATION.communication.azure.com/" `
+    "CallbackBaseUrl=https://$CA_NAME.<your-cae-domain>.azurecontainerapps.io/api/callbacks" `
+    "Speech__Endpoint=https://$SPEECH_NAME.cognitiveservices.azure.com/" `
+    "Speech__ResourceId=/subscriptions/<sub-id>/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$SPEECH_NAME" `
+    "Speech__Region=$LOCATION" `
+    "Speech__SourceLanguage=en-US" `
+    "Speech__TargetLanguages__0=en" `
+    "Speech__TargetLanguages__1=es" `
+    "Speech__TargetLanguages__2=fr" `
+    "Speech__TargetLanguages__3=de" `
+    "WebPubSub__Endpoint=https://$PUBSUB_NAME.webpubsub.azure.com" `
+    "WebPubSub__HubName=$PUBSUB_HUB"
+Pop-Location
+
+# Get the managed identity principal ID
+$CA_IDENTITY = az containerapp identity show `
+  --name $CA_NAME `
+  --resource-group $RG `
+  --query principalId -o tsv
+
+# Assign RBAC roles
+$ACS_SCOPE = az communication show -n $ACS_NAME -g $RG --query id -o tsv
+az role assignment create --assignee $CA_IDENTITY `
+  --role "Communication and Email Service Owner" `
+  --scope $ACS_SCOPE
+
+$PUBSUB_SCOPE = az webpubsub show -n $PUBSUB_NAME -g $RG --query id -o tsv
+az role assignment create --assignee $CA_IDENTITY `
+  --role "Web PubSub Service Owner" `
+  --scope $PUBSUB_SCOPE
+
+$SPEECH_SCOPE = az cognitiveservices account show -n $SPEECH_NAME -g $RG --query id -o tsv
+az role assignment create --assignee $CA_IDENTITY `
+  --role "Cognitive Services Speech User" `
+  --scope $SPEECH_SCOPE
 ```
 
 ### Deploy Kiosk Client (App Service)
 
+**Bash:**
 ```bash
 cd src/KioskClient
 dotnet publish -c Release -o ./publish
 
 az webapp create \
-  --name app-kiosk-live-translation \
-  --resource-group rg-live-translation \
-  --plan asp-live-translation \
+  --name $APP_NAME \
+  --resource-group $RG \
+  --plan $ASP_NAME \
   --runtime "DOTNETCORE:9.0"
 
+# Enable WebSockets (required for Blazor Server SignalR transport)
+az webapp config set \
+  --name $APP_NAME \
+  --resource-group $RG \
+  --web-sockets-enabled true
+
 az webapp config appsettings set \
-  --name app-kiosk-live-translation \
-  --resource-group rg-live-translation \
+  --name $APP_NAME \
+  --resource-group $RG \
   --settings \
-    "BackendApi__BaseUrl=https://func-live-translation.azurewebsites.net" \
-    "MediaProcessor__BaseUrl=https://media-processor.<your-cae-domain>.azurecontainerapps.io"
+    "BackendApi__BaseUrl=https://$FUNC_NAME.azurewebsites.net" \
+    "MediaProcessor__BaseUrl=https://$CA_NAME.<your-cae-domain>.azurecontainerapps.io"
+
+zip -r ./publish.zip ./publish/*
 
 az webapp deploy \
-  --name app-kiosk-live-translation \
-  --resource-group rg-live-translation \
-  --src-path ./publish \
+  --name $APP_NAME \
+  --resource-group $RG \
+  --src-path ./publish.zip \
   --type zip
+```
+
+**PowerShell:**
+```powershell
+Push-Location src/KioskClient
+dotnet publish -c Release -o ./publish
+
+az webapp create `
+  --name $APP_NAME `
+  --resource-group $RG `
+  --plan $ASP_NAME `
+  --runtime "DOTNETCORE:9.0"
+
+# Enable WebSockets (required for Blazor Server SignalR transport)
+az webapp config set `
+  --name $APP_NAME `
+  --resource-group $RG `
+  --web-sockets-enabled true
+
+az webapp config appsettings set `
+  --name $APP_NAME `
+  --resource-group $RG `
+  --settings `
+    "BackendApi__BaseUrl=https://$FUNC_NAME.azurewebsites.net" `
+    "MediaProcessor__BaseUrl=https://$CA_NAME.<your-cae-domain>.azurecontainerapps.io"
+
+Compress-Archive -Path ./publish/* -DestinationPath ./publish.zip -Force
+
+az webapp deploy `
+  --name $APP_NAME `
+  --resource-group $RG `
+  --src-path ./publish.zip `
+  --type zip
+Pop-Location
 ```
 
 ---
