@@ -4,6 +4,9 @@ Real-time video calling with multi-language translation powered by **Azure Commu
 
 Users join an ACS video call, see **live translated captions** in their chosen language, and optionally hear **synthesized translated audio**.
 
+> [!IMPORTANT]
+> This project is provided for demonstration and educational purposes only. It is not intended for production use without additional review, hardening, security validation, operational monitoring, compliance assessment, and testing.
+
 ---
 
 ## Architecture
@@ -793,4 +796,4 @@ Pop-Location
 
 ## License
 
-This project is for demonstration purposes.
+This project is provided for demonstration and educational purposes only and is not intended for production use.
