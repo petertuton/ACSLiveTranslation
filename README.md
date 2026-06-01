@@ -796,4 +796,4 @@ Pop-Location
 
 ## License
 
-This project is provided for demonstration and educational purposes only and is not intended for production use.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
